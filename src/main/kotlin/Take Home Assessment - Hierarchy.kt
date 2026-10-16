@@ -128,15 +128,91 @@ class ArrayBasedHierarchy(
 }
 
 class FilterTest {
+  private val exampleNodes = intArrayOf(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11)
+  private val exampleDepths = intArrayOf(0, 1, 2, 3, 1, 0, 1, 0, 1, 1, 2)
+
   @Test
   fun testFilter() {
-    val unfiltered: Hierarchy = ArrayBasedHierarchy(
-      intArrayOf(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11),
-      intArrayOf(0, 1, 2, 3, 1, 0, 1, 0, 1, 1, 2))
+    val unfiltered: Hierarchy = ArrayBasedHierarchy(exampleNodes, exampleDepths)
     val filteredActual: Hierarchy = unfiltered.filter { nodeId -> nodeId % 3 != 0 }
     val filteredExpected: Hierarchy = ArrayBasedHierarchy(
       intArrayOf(1, 2, 5, 8, 10, 11),
       intArrayOf(0, 1, 1, 0, 1, 2))
-    assertEquals(filteredExpected.formatString(), filteredActual.formatString())
+    assertEquals(filteredActual.formatString(), filteredExpected.formatString())
+  }
+
+  @Test
+  fun testFilterEmptyHierarchy() {
+    val unfiltered: Hierarchy = ArrayBasedHierarchy(intArrayOf(), intArrayOf())
+    assertEquals(unfiltered.filter { true }.formatString(), "[]")
+    assertEquals(unfiltered.filter { false }.formatString(), "[]")
+  }
+
+  @Test
+  fun testFilterAllPassIsIdentity() {
+    val unfiltered: Hierarchy = ArrayBasedHierarchy(exampleNodes, exampleDepths)
+    assertEquals(unfiltered.filter { true }.formatString(), unfiltered.formatString())
+  }
+
+  @Test
+  fun testFilterAllFailIsEmpty() {
+    val unfiltered: Hierarchy = ArrayBasedHierarchy(exampleNodes, exampleDepths)
+    assertEquals(unfiltered.filter { false }.formatString(), "[]")
+  }
+
+  @Test
+  fun testSingleNode() {
+    assertEquals(ArrayBasedHierarchy(intArrayOf(1), intArrayOf(0)).filter { true }.formatString(), "[1:0]")
+    assertEquals(ArrayBasedHierarchy(intArrayOf(1), intArrayOf(0)).filter { false }.formatString(), "[]")
+  }
+
+  @Test
+  fun testRootFailsRemovesWholeSubtree() {
+    // Root 1 fails the predicate, children 2 and 3 pass -> the entire tree is dropped.
+    val unfiltered = ArrayBasedHierarchy(intArrayOf(1, 2, 3), intArrayOf(0, 1, 2))
+    assertEquals(unfiltered.filter { it != 1 }.formatString(), "[]")
+  }
+
+  @Test
+  fun testParentFailsRemovesDescendants() {
+    // Root 1 passes, child 2 fails, grandchildren 3 and 4 pass -> 3 and 4 are still dropped.
+    val unfiltered = ArrayBasedHierarchy(intArrayOf(1, 2, 3, 4), intArrayOf(0, 1, 2, 3))
+    assertEquals(unfiltered.filter { it != 2 }.formatString(), "[1:0]")
+  }
+
+  @Test
+  fun testRemovedSiblingDoesNotAffectOtherSiblingSubtree() {
+    // 1(0) - 2(1), 3(1) - 4(2). Node 2 is removed, node 3 survives with its child 4.
+    val unfiltered = ArrayBasedHierarchy(intArrayOf(1, 2, 3, 4), intArrayOf(0, 1, 1, 2))
+    assertEquals(unfiltered.filter { it != 2 }.formatString(), "[1:0, 3:1, 4:2]")
+  }
+
+  @Test
+  fun testMultipleRootTrees() {
+    // Tree A: 1(0)-2(1). Tree B: 3(0)-4(1)-5(2), 6(1)-7(2).
+    // Keep ids < 4 -> 1, 2, 3 survive; 4, 5, 6, 7 are dropped.
+    val unfiltered = ArrayBasedHierarchy(
+      intArrayOf(1, 2, 3, 4, 5, 6, 7),
+      intArrayOf(0, 1, 0, 1, 2, 1, 2))
+    assertEquals(unfiltered.filter { it < 4 }.formatString(), "[1:0, 2:1, 3:0]")
+  }
+
+  @Test
+  fun testDeepNestingKeepsChain() {
+    // A deep chain 1-2-3-4-5 all pass.
+    val unfiltered = ArrayBasedHierarchy(
+      intArrayOf(1, 2, 3, 4, 5),
+      intArrayOf(0, 1, 2, 3, 4))
+    assertEquals(unfiltered.filter { true }.formatString(), "[1:0, 2:1, 3:2, 4:3, 5:4]")
+  }
+
+  @Test
+  fun testResultKeepsOriginalIdsAndDepths() {
+    // Predicate selects only some ids; depths of surviving nodes must be unchanged.
+    val unfiltered = ArrayBasedHierarchy(exampleNodes, exampleDepths)
+    val filtered = unfiltered.filter { it % 2 == 0 } // 2, 4, 6, 8, 10 pass
+    // 2 has parent 1 (odd, removed) -> dropped. 4's parent 3 removed -> dropped.
+    // 6 is a root and passes -> kept. 8 root passes -> kept; 9 (child of 8, odd) removed; 10 (child of 8) kept.
+    assertEquals(filtered.formatString(), "[6:0, 8:0, 10:1]")
   }
 }
